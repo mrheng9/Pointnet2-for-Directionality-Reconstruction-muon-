@@ -1,5 +1,4 @@
 import os
-# os.environ['CUDA_LAUNCH_BLOCKING'] = '1,2,3'
 import json
 import pickle
 import argparse
@@ -19,12 +18,13 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 from scipy.stats import norm
 import matplotlib.pyplot as plt
-COORDS_PATH = "/disk_pool1/houyh/coords/norm_coords"
+COORDS_SINGLE_PATH = "/disk_pool1/houyh/coords/norm_coords_single.npy"   # (17612,3)
+COORDS_HAMA_PATH   = "/disk_pool1/houyh/coords/norm_coords_hama.npy"
 
 def parse_args():
     parser = argparse.ArgumentParser('training')
     parser.add_argument('--use_cpu', action='store_true', default=False, help='use cpu mode')
-    parser.add_argument('--gpu', type=str, default='2', help='specify gpu device')
+    parser.add_argument('--gpu', type=str, default='0', help='specify gpu device')
 
     parser.add_argument('--batch_size', type=int, default=32, help='batch size in training')
     parser.add_argument('--epoch', default=1, type=int, help='number of epoch in training')
@@ -40,6 +40,9 @@ def parse_args():
         choices=["normal", "divide", "log", "dlog"],
         help="feature transform mode for PID dataset",
     )
+
+    # NEW: whether to use Hamamatsu-only PMT points (N,4997,3)
+    parser.add_argument("--hamamatsu",action="store_true",help="use Hamamatsu-only PMT points: pid_points_hama.npy")
     
     parser.add_argument('--seed', type=int, default=42)
     parser.add_argument("--use_frac",type=float,default=0.1)
@@ -47,7 +50,7 @@ def parse_args():
     parser.add_argument('--val_size', type=float, default=0.2)
     parser.add_argument("--eps", type=float, default=1e-6, help="numerical epsilon for divide/log")
 
-    parser.add_argument('--log_dir', type=str, default='/home/houyh/Pointnet2-for-Directionality-Reconstruction-muon-/experiments/test1', help='experiment root')
+    parser.add_argument('--log_dir', type=str, default='/home/houyh/Pointnet2-for-Directionality-Reconstruction-muon-/experiments/test2', help='experiment root')
     return parser.parse_args()
 
 def setup_logging():
@@ -136,21 +139,23 @@ def _stratified_subsample(points: np.ndarray, labels: np.ndarray, frac: float, s
     rng.shuffle(keep_idx)
     return points[keep_idx], labels[keep_idx], keep_idx
 
-def _load_coords_tiled(n: int, p: int) -> np.ndarray:
-    coords = np.load(COORDS_PATH, mmap_mode="r")
+def _load_coords_tiled(n: int, p: int, hamamatsu: bool = False) -> np.ndarray:
+    """
+    Load a single (P,3) coords template and broadcast to (N,P,3).
+    - hamamatsu=False -> COORDS_SINGLE_PATH, expects (17612,3)
+    - hamamatsu=True  -> COORDS_HAMA_PATH,   expects (4997,3)
+    """
+    coords_path = COORDS_HAMA_PATH if hamamatsu else COORDS_SINGLE_PATH
+    if not os.path.exists(coords_path):
+        raise FileNotFoundError(f"Missing coords file: {coords_path}")
 
-    if coords.ndim == 2:
-        if coords.shape != (p, 3):
-            raise ValueError(f"coords template must be [{p},3], got {coords.shape}")
-        return np.broadcast_to(coords[None, :, :], (n, p, 3)).astype(np.float32, copy=True)
+    coords = np.load(coords_path, mmap_mode="r")
+    if coords.ndim != 2 or coords.shape[-1] != 3:
+        raise ValueError(f"coords must be [P,3], got {coords.shape} from {coords_path}")
+    if coords.shape[0] != p:
+        raise ValueError(f"P mismatch: coords P={coords.shape[0]} vs feats P={p} (file={coords_path})")
 
-    if coords.ndim != 3 or coords.shape[-1] != 3:
-        raise ValueError(f"coords must be [N,P,3] or [P,3], got {coords.shape}")
-    if coords.shape[1] != p:
-        raise ValueError(f"P mismatch: coords P={coords.shape[1]} vs feats P={p}")
-
-    # since coords events are identical (verified), use event0 as template to avoid huge tile
-    tmpl = np.asarray(coords[0], dtype=np.float32)  # [P,3]
+    tmpl = np.asarray(coords, dtype=np.float32)  # [P,3]
     return np.broadcast_to(tmpl[None, :, :], (n, p, 3)).copy()
 
 def load_data_with_splits(args, save_splits_to=None, load_splits_from=None):
@@ -163,7 +168,21 @@ def load_data_with_splits(args, save_splits_to=None, load_splits_from=None):
     """
     points, labels = load_pid_dataset(getattr(args, "pid_dataset_dir"))
 
-    # --- NEW: reuse the exact same subsample if splits.npz provides it ---
+    # optionally replace points with Hamamatsu-only points
+    if bool(getattr(args, "hamamatsu", False)):
+        hama_path = os.path.join(getattr(args, "pid_dataset_dir"), "pid_points_hama.npy")
+        if not os.path.exists(hama_path):
+            raise FileNotFoundError(f"--hamamatsu set but missing file: {hama_path}")
+        points_hama = np.load(hama_path)
+        if points_hama.ndim != 3 or points_hama.shape[-1] != 3:
+            raise ValueError(f"pid_points_hama.npy must be [N,4997,3] (or [N,P,3]), got {points_hama.shape}")
+        if points_hama.shape[0] != labels.shape[0]:
+            raise ValueError(
+                f"N mismatch: pid_points_hama N={points_hama.shape[0]} != labels N={labels.shape[0]}"
+            )
+        points = points_hama
+
+    # --- reuse the exact same subsample if splits.npz provides it ---
     subsample_idx = None
     split_npz = None
     if load_splits_from and os.path.exists(load_splits_from):
@@ -172,8 +191,7 @@ def load_data_with_splits(args, save_splits_to=None, load_splits_from=None):
             subsample_idx = split_npz["subsample_idx"].astype(np.int64)
             points = points[subsample_idx]
             labels = labels[subsample_idx]
-
-    # --- if training (or old splits without subsample_idx), create subsample now ---
+            
     if subsample_idx is None:
         points, labels, subsample_idx = _stratified_subsample(
             points,
@@ -182,6 +200,7 @@ def load_data_with_splits(args, save_splits_to=None, load_splits_from=None):
             seed=int(getattr(args, "seed", 42)),
         )
 
+
     feats = _transform_pid_features(
         points,
         mode=getattr(args, "feature_mode", "normal"),
@@ -189,7 +208,11 @@ def load_data_with_splits(args, save_splits_to=None, load_splits_from=None):
     )  # [N,P,3]
 
     if bool(getattr(args, "coordinates", False)):
-        coords = _load_coords_tiled(n=feats.shape[0], p=feats.shape[1])
+        coords = _load_coords_tiled(
+            n=feats.shape[0],
+            p=feats.shape[1],
+            hamamatsu=bool(getattr(args, "hamamatsu", False)),
+        )
         points = np.concatenate([coords, feats], axis=-1).astype(np.float32, copy=False)
         feat_start = 3
     else:
@@ -252,7 +275,8 @@ def load_data_with_splits(args, save_splits_to=None, load_splits_from=None):
         f"| train/val/test = {len(train_idx)}/{len(val_idx)}/{len(test_idx)} "
         f"| counts_train={counts_train.tolist()} counts_val={counts_val.tolist()} counts_test={counts_test.tolist()} "
         f"| use_frac={float(getattr(args,'use_frac',1.0))} "
-        f"| coordinates={bool(getattr(args,'coordinates',False))} feature_mode={getattr(args,'feature_mode','normal')}"
+        f"| coordinates={bool(getattr(args,'coordinates',False))} feature_mode={getattr(args,'feature_mode','normal')} "
+        f"| hamamatsu={bool(getattr(args,'hamamatsu',False))}"
     )
 
     split_dict = {
@@ -267,6 +291,7 @@ def load_data_with_splits(args, save_splits_to=None, load_splits_from=None):
         "coordinates": bool(getattr(args, "coordinates", False)),
         "feat_start": int(feat_start),
         "n_total_used": int(n),
+        "hamamatsu": bool(getattr(args, "hamamatsu", False)),
     }
     return points_train, points_val, points_test, labels_train, labels_val, labels_test, scalers, split_dict
 
@@ -386,6 +411,7 @@ def main(args):
 
                     # dataset + preprocessing
                     "pid_dataset_dir": getattr(args, "pid_dataset_dir", None),
+                    "hamamatsu": bool(getattr(args, "hamamatsu", False)),
                     "coordinates": bool(getattr(args, "coordinates", False)),
                     "feature_mode": getattr(args, "feature_mode", "normal"),
                     "eps": float(getattr(args, "eps", 1e-6)),

@@ -14,37 +14,40 @@ from train import load_data_with_splits
 def parse_args():
     p = argparse.ArgumentParser("evaluation")
     p.add_argument('--use_cpu', action='store_true', default=False)
-    p.add_argument('--gpu', type=str, default='2')
+    p.add_argument('--gpu', type=str, default='0')
     p.add_argument('--batch_size', type=int, default=32)
-
-    # PID dataset args (defaults; may be overwritten by train_meta.json)
-    p.add_argument("--pid_dataset_dir", type=str, default="/disk_pool1/houyh/data/J23_J25_7_2/pid_dataset")
-    p.add_argument("--coordinates", action="store_true", help="must match training")
-    p.add_argument("--feature_mode", type=str, default="normal", choices=["normal", "divide", "log", "dlog"])
-    p.add_argument("--use_frac", type=float, default=1.0) 
-    p.add_argument("--eps", type=float, default=1e-6)
-
-    p.add_argument('--log_dir', type=str, default='/home/houyh/Pointnet2-for-Directionality-Reconstruction-muon-/experiments/test1', help='experiment dir produced by train.py')
+    p.add_argument(
+        '--log_dir',
+        type=str,
+        default='/home/houyh/Pointnet2-for-Directionality-Reconstruction-muon-/experiments/test2',
+        help='experiment dir produced by train.py (must contain train_meta.json & splits.npz)',
+    )
     return p.parse_args()
 
 def _apply_meta_defaults(args):
     meta_path = os.path.join(args.log_dir, "train_meta.json")
     if not os.path.exists(meta_path):
-        return None
+        raise FileNotFoundError(
+            f"Missing train_meta.json at: {meta_path}. "
+            f"Please evaluate with a valid --log_dir produced by train.py."
+        )
+
     with open(meta_path, "r", encoding="utf-8") as f:
         meta = json.load(f)
 
-    # override runtime args with meta to guarantee consistency
-    if "pid_dataset_dir" in meta and meta["pid_dataset_dir"]:
-        args.pid_dataset_dir = meta["pid_dataset_dir"]
-    if "coordinates" in meta:
-        args.coordinates = bool(meta["coordinates"])
-    if "feature_mode" in meta:
-        args.feature_mode = meta["feature_mode"]
-    if "use_frac" in meta:
-        args.use_frac = float(meta["use_frac"])
-    if "eps" in meta:
-        args.eps = float(meta["eps"])
+    # required keys for reproducible eval
+    required = ["pid_dataset_dir", "coordinates", "feature_mode", "use_frac", "eps", "hamamatsu"]
+    missing = [k for k in required if k not in meta]
+    if missing:
+        raise KeyError(f"train_meta.json missing keys: {missing}. Please re-train to regenerate meta.")
+
+    # inject into args (so load_data_with_splits sees them)
+    args.pid_dataset_dir = meta["pid_dataset_dir"]
+    args.coordinates = bool(meta["coordinates"])
+    args.feature_mode = str(meta["feature_mode"])
+    args.use_frac = float(meta["use_frac"])
+    args.eps = float(meta["eps"])
+    args.hamamatsu = bool(meta["hamamatsu"])
 
     return meta
 
@@ -77,7 +80,6 @@ def main(args):
 
     model_path = os.path.join(args.log_dir, "best_pointnet_regression_model.pth")
     splits_path = os.path.join(args.log_dir, "splits.npz")
-    meta_path = os.path.join(args.log_dir, "train_meta.json")
 
     if not os.path.exists(model_path):
         raise FileNotFoundError(model_path)
@@ -97,10 +99,11 @@ def main(args):
         load_splits_from=splits_path,
     )
 
-    # extra explicit print (so you see it at eval start)
     print(
         f"[EVAL DATA] N_test={int(points_test.shape[0])} (P={int(points_test.shape[1])}, C={int(points_test.shape[2])}) "
-        f"| counts_test={np.bincount(labels_test, minlength=3).tolist()}"
+        f"| counts_test={np.bincount(labels_test, minlength=3).tolist()} "
+        f"| hamamatsu={bool(getattr(args,'hamamatsu',False))} coordinates={bool(getattr(args,'coordinates',False))} "
+        f"| feature_mode={getattr(args,'feature_mode','?')}"
     )
 
     test_loader = DataLoader(
@@ -139,9 +142,12 @@ def main(args):
                 "num_test": int(true_class.shape[0]),
                 "class_names": class_names,
                 "split_meta": split_meta,
+                "hamamatsu": bool(args.hamamatsu),
                 "coordinates": bool(args.coordinates),
                 "feature_mode": args.feature_mode,
                 "eps": float(args.eps),
+                "pid_dataset_dir": args.pid_dataset_dir,
+                "use_frac": float(args.use_frac),
             },
             f,
             indent=2,
