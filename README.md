@@ -1,169 +1,167 @@
-# PointNet++ for directionality reconstruction — Tutorial
-This tutorial based on the server @10.102.33.217  （GPU04）
+# PointNet++ for Directionality Reconstruction (PID 3-class) — Tutorial
+
 ## Overview
-The Jiangmen Underground Neutrino Observatory **(JUNO)** is a large liquid-scintillator detector designed to determine the neutrino mass ordering and precisely measure oscillation parameters.   
-![](https://github.com/user-attachments/assets/e33b6881-fad5-4585-a326-d289810b430b)
-Beyond reactor neutrinos, JUNO also observes atmospheric neutrinos whose charged-current interactions produce muons. This project focuses on reconstructing the muon direction from atmospheric neutrino interactions using a PointNet++ regression model on PMT-derived point-cloud features.
- 
-## Repository Structure
-- `train.py` — training script (train/val split, saves best model + learning curve)
-  - `models/pointnet_regression_ssg.py` — PointNet MSG-based regression model
-  - `models/pointnet_regression_utils.py` — set abstraction layers and MSG ops
-- `evaluation.py` — **test-set inference only**, saves predictions to `.npz`
-- `plots.py` — reads saved predictions and generates plots
-- `data_utils/`
-  - `PMTLoader.py` — `CustomDataset`, and data stacking helpers
-- `README.md` — brief usage notes
+JUNO observes atmospheric neutrino interactions. This repo implements a **3-class PID** classifier:
+- `nc`  → 0
+- `Vmu` → 1
+- `Ve`  → 2
 
-## Environment 
+Pipeline:
+1. **Train** on train split and monitor val split (no test leakage)
+2. **Evaluate** on the held-out test split (same split as training)
+3. **Plot** confusion matrices + ROC/PR curves (from saved test predictions)
 
-Dependencies:
-- python=3.8
-- numpy
-- pytorch
-- matplotlib
-- tqdm
-- scikit-learn
-- pandas
-- git
+---
 
-Setup :
-```powershell
-# Create and activate env
+## Environment
+
+Recommended (conda):
+```bash
 conda create -n pointnet2p python=3.8 -y
 conda activate pointnet2p
 
-# Install packages
-conda install numpy scikit-learn matplotlib tqdm pandas git -y
+conda install numpy scikit-learn matplotlib tqdm pandas -y
 conda install pytorch -c pytorch -y
 ```
 
-## Data and Features
-Implement or point the loader to your dataset through `data_utils/PMTLoader.py`.
+---
 
-Expected conventions:
-- Inputs: stacked point features shaped `[N, P, C]`
-  - N = samples, P = points per sample, C = input channels (e.g., coordinates + features)
-- Targets: regression vectors shaped `[N, D]` (commonly 3D; labels are normalized to unit vectors in `train.py`)
+## Data Convention (PID)
 
-Feature origin (PMT waveforms):
-- All feature channels C are extracted from PMT charge/time waveforms measured or reconstructed from the detector.
-- Typical examples:
-  - fht: first-hit time of the PMT pulse
-  - slope: rising-edge slope proxy
-  - peak / peaktime: pulse peak amplitude and its time
-  - timemax: time of maximum sample
-  - nperatio5: charge ratio within a short window (e.g., 5 ns) to total charge
-  - npe: number of photoelectrons (charge proxy)
+Expected by `data_utils/PMTLoader.py`:
+- `load_pid_dataset(pid_dataset_dir)` returns:
+  - `points`: `float` array shaped `[N, P, 3]` with channel order **[nPE, slope, FHT]**
+  - `labels`: `int` array shaped `[N]` with values in `{0,1,2}`
 
-Data sources (argument: --data_source):
-- det — Features extracted from detector-level simulation. 
-- elec — Features after electronics simulation.
-- cnn — Features reconstructed by a CNN from waveforms. 
-- rawnet — Features reconstructed by a RawNet model. 
+### Feature transform (`--feature_mode`)
+Implemented in `train.py`:
+- `normal`: `[nPE, FHT, slope]`
+- `divide`: `[nPE, FHT, slope/(nPE+eps)]`
+- `log`: `[nPE, FHT, log(slope+eps)]`
+- `dlog`: `[log(nPE+eps), FHT, log(slope+eps)]`
 
-## Model Overview
-File: `models/pointnet_regression_ssg.py`
-- Extracts hierarchical point features using:
-  - `PointNetSetAbstractionMsg` (multi-scale grouping)
-  - `PointNetSetAbstraction` (global stage)
-- Aggregates multi-scale features and regresses to a continuous target.
-- Configurable input channels (`in_channel`) to match your data (C above).
+### Coordinates option (`--coordinates`)
+- If `--coordinates` is ON:
+  - input becomes `[N, P, 6] = [xyz(3), features(3)]`
+  - xyz is loaded from: `COORDS_PATH = "/disk_pool1/houyh/coords/norm_coords"`
+- If `--coordinates` is OFF:
+  - input is `[N, P, 3]` (features only), treated as pseudo-xyz by the network
 
-Core building blocks in `models/pointnet_regression_utils.py`:
-- `PointNetSetAbstraction`
-- `PointNetSetAbstractionMsg`
+---
 
-## Workflow (Train → Evaluate → Plot)
+## Reproducible splitting + subsampling (important)
 
-This repo now uses a clean **three-stage pipeline**:
-1. **Training** uses **train** split and monitors **val** split (no test leakage).
-2. **Evaluation** runs inference on the held-out **test** split only and saves raw predictions.
-3. **Plots** reads evaluation outputs and generates figures.
+This repo supports downsampling the dataset using `--use_frac` (e.g. 0.3 = keep ~30% per class, stratified).
+To keep **evaluation consistent** with training, the training split file now stores both:
+- `train_idx`, `val_idx`, `test_idx`
+- `subsample_idx` (the exact subsample mapping)
 
-### Output files in `--log_dir`
-After training and evaluation, you should see:
-- `best_pointnet_regression_model.pth` — best checkpoint (selected by lowest **val loss**)
-- `learning_curve.png` — train/val loss vs epoch (log y-axis)
-- `splits.npz` — fixed indices for `train_idx/val_idx/test_idx` (for reproducibility)
-- `scalers.pkl` — feature normalization parameters fitted **on train only**
-- `train_meta.json` — run configuration and split sizes
-- `predictions_test.npz` — evaluation outputs (`y_pred`, `y_true`)
-- (optional) plot images produced by `plots.py`
+So evaluation will reuse the same subsample and split by loading `splits.npz`.
 
-> Note: `splits.npz` and `scalers.pkl` are used to keep evaluation consistent with training (same split + same normalization).
+---
+
+## Output files in `--log_dir`
+
+After training + evaluation:
+- `best_pointnet_regression_model.pth` — best checkpoint (lowest **val loss**)
+- `learning_curve_loss.png` — train/val loss vs epoch (log y-axis)
+- `learning_curve_acc.png` — train/val accuracy vs epoch
+- `splits.npz` — split indices + `subsample_idx` (for reproducibility)
+- `scalers.pkl` — feature normalization parameters fitted on **train only**
+- `train_meta.json` — run configuration and split statistics
+- `predictions_test.npz` — evaluation outputs: `pred_class`, `true_class`, `prob`, `class_names`
+- `metrics_test.json` — test accuracy + config snapshot
+- `plots/` (or other plot dir) — confusion matrices, ROC/PR curves, Fig.9-style efficiency ROC curves
 
 ---
 
 ## Training
-Choose the one you prefer. Here use `nohup` as a demonstration.  
-**(note that the --data_source parameter is required)**
 
+Minimal:
 ```bash
-nohup python train.py --data_source cnn --log_dir experiments/test > cnn_train.log 2>&1 &
+nohup python train.py --coordinates > pid.log 2>&1 & 
+```
+
+Common options:
+```bash
+# use 30% data (stratified), with xyz coords and dlog features
+nohup python evaluation.py --coordinates --use_frac 0.3 > pid_eval.log 2>&1 & 
 ```
 
 Key arguments:
-- `--gpu` GPU id (default: `2`)
+- `--gpu` GPU id (default `2`)
+- `--log_dir` experiment directory
 - `--epoch` number of epochs
 - `--batch_size` batch size
-- `--test_size` fraction of the full dataset used for test (default `0.2`)
-- `--val_size` fraction of the remaining trainval set used for validation (default `0.2`)
-- `--seed` random seed for splitting
-
-### Plots saved by `train.py`
-- `learning_curve.png` — Train/Val loss vs epoch (log y-axis)
+- `--use_frac` fraction of the full dataset to use (default `0.1`; set to `1.0` for full)
+- `--test_size` test fraction (default `0.2`)
+- `--val_size` val fraction from remaining trainval (default `0.2`)
+- `--coordinates` include xyz coordinates (input C=6)
+- `--feature_mode` `normal|divide|log|dlog`
+- `--eps` numerical epsilon for divide/log
 
 ---
 
-## Evaluation (Test Inference)
-Run inference on the **test split** using the checkpoint saved by training.
+## Evaluation (test inference)
 
-### Recommended (no need to pass `--data_source`)
-`evaluation.py` will automatically read `data_source` from `train_meta.json` under `--log_dir`, so you only need to provide the experiment directory:
+Evaluation reads `train_meta.json` under `--log_dir` and overwrites runtime args for consistency:
+- `pid_dataset_dir`
+- `coordinates`
+- `feature_mode`
+- `use_frac`
+- `eps`
 
+It also loads `splits.npz` to ensure the **exact same test split** (and the same subsample).
+
+Run:
 ```bash
-nohup python evaluation.py --log_dir experiments/test > eval.log 2>&1 &
-```
-
-### Alternative (if `train_meta.json` is missing)
-If `train_meta.json` does not exist in `--log_dir`, you must pass `--data_source` explicitly:
-
-```bash
-nohup python evaluation.py --data_source cnn --log_dir experiments/test > eval.log 2>&1 &
+nohup python evaluation.py --coordinates > pid_eval.log 2>&1 & 
 ```
 
 Outputs:
-- `experiments/test/predictions_test.npz` containing:
-  - `y_pred`: predicted direction vectors, shape `[N_test, 3]`
-  - `y_true`: ground truth direction vectors, shape `[N_test, 3]`
-
-Notes:
-- Evaluation uses `splits.npz` to ensure the **same test split** as training.
+- `predictions_test.npz`:
+  - `pred_class` shape `[N_test]`
+  - `true_class` shape `[N_test]`
+  - `prob` shape `[N_test, 3]` (softmax probs)
+  - `class_names`
+- `metrics_test.json`
 
 ---
 
 ## Plotting
-Generate figures from `predictions_test.npz`:
 
+`plots.py` reads `predictions_test.npz` and generates:
+- Confusion matrix (counts)
+- Confusion matrix (efficiency normalization): **P(pred | true)** (row-normalized)
+- OvR ROC curves + AUC for each class
+- OvR PR curves + AP for each class
+- Fig.9-style “efficiency ROC” curves:
+  - y-axis: efficiency of target class
+  - x-axis: efficiency of other two classes combined
+  - AUC values displayed
+
+Run (use defaults in plots.py), or specify explicitly:
 ```bash
 python plots.py 
 ```
 
-Outputs (saved under `--log_dir` passed to plots.py):
-- `test_performance.png` — scatter of predicted vs true θ with y=x reference
-- `error_distribution.png` — histogram of (pred − true) θ errors (deg)
-- `angle_distribution.png` — opening angle α PDF (deg) + 68% quantile marker
-
 ---
 
-## Reference Results
-1 GeV muon direction reconstruction — α angle resolution (68th percentile).  
-Different models vs. different data sources (best resolution per setting).  
-Features used: ["fht", "slope", "peak", "timemax", "nperatio5", "npe"]
+## Notes / Troubleshooting
 
-![1 GeV Muon α(°) 68th percentile — model/data comparison](https://github.com/user-attachments/assets/8f339837-5deb-46a4-af47-a96ad0c726ae)
+1. **If ROC/PR shows warnings about no positive/negative samples**
+   - Your test set contains only one class. Check `evaluation.py` prints:
+     `counts_test=[..., ..., ...]`
+   - If `counts_test` is unbalanced or missing classes, ensure you are using the correct `--log_dir` with a valid `splits.npz` and `subsample_idx`.
 
-Notes:
-- α: opening angle between predicted and true directions (degrees).
-- Use this plot to check if your run matches or improves the 68% quantile for your chosen data_source (det/elec/cnn/rawnet) and feature set.
+2. **Coordinates file**
+   - `COORDS_PATH` must exist and match your point count `P`.
+   - You can inspect it with:
+     ```bash
+     python test.py
+     ```
+
+3. **Re-run requirement after changing split/subsample logic**
+   - If you created `splits.npz` before adding `subsample_idx`, re-train once to regenerate it.
+
+---

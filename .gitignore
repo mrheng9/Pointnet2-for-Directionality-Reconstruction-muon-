@@ -1,6 +1,10 @@
 __pycache__/
 data_utils/__pycache__/
 models/__pycache__/
+experiments/
+test.py
+
+*.png
 *.py[cod]
 *$py.class
 

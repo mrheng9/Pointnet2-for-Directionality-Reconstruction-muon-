@@ -4,6 +4,7 @@ import warnings
 import torch
 from tqdm import tqdm
 from torch.utils.data import Dataset
+from typing import Tuple, Optional, Dict
 
 warnings.filterwarnings('ignore')
 
@@ -11,125 +12,63 @@ warnings.filterwarnings('ignore')
 #DATA LOADER
 #######################################################
 
-def pc_normalize(pc):
-    centroid = np.mean(pc, axis=0)
-    pc = pc - centroid
-    m = np.max(np.sqrt(np.sum(pc**2, axis=1)))
-    pc = pc / m
-    return pc
+PID_CLASS_NAMES = ["nc", "Vmu", "Ve"]
 
-class PMTDataLoader(Dataset):
-    def __init__(self, points, labels, args):
-        """
-        PMT point cloud data loader.
-        
-        parameters:
-            points (np.ndarray): Point cloud data,shape:(N, num_points, feature_dims)
-            labels (np.ndarray): Labels for each point cloud, shape:(N,) or (N, num_points)
-            args
-        """
-        self.points = points
-        self.labels = labels
-        self.use_normals = args.use_normals if hasattr(args, 'use_normals') else False
-        self.normalize_points = args.normalize_points if hasattr(args, 'normalize_points') else False
-        
-        self.original_npoints = self.points.shape[1] if len(self.points.shape) > 2 else 0
-        print(f"Point Cloud Shape: {self.points.shape}")
-        
-    def __len__(self):
-        return len(self.points)
+def load_pid_dataset(
+    pid_dir: str,
+    points_name: str = "pid_points.npy",
+    labels_name: str = "pid_labels.npy",
+    mmap: bool = True,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Load prebuilt PID dataset from directory.
 
-    def __getitem__(self, index):
-        point_set = self.points[index].copy() 
-        label = self.labels[index]
-        
-        if self.normalize_points:
-            point_set[:, 0:3] = pc_normalize(point_set[:, 0:3])
-        
-        if not self.use_normals and point_set.shape[1] > 3:
-            point_set = point_set[:, 0:3]
-        
-        point_set = torch.from_numpy(point_set.astype(np.float32))
-        label = torch.from_numpy(np.array(label).astype(np.float32))
-        
-        return point_set, label
+    Expects:
+      - {pid_dir}/pid_points.npy : float32 array [N, P, C]
+      - {pid_dir}/pid_labels.npy : int64 array [N]
+    """
+    points_path = os.path.join(pid_dir, points_name)
+    labels_path = os.path.join(pid_dir, labels_name)
+
+    if not os.path.exists(points_path):
+        raise FileNotFoundError(points_path)
+    if not os.path.exists(labels_path):
+        raise FileNotFoundError(labels_path)
+
+    mm = "r" if mmap else None
+    points = np.load(points_path, mmap_mode=mm)
+    labels = np.load(labels_path, mmap_mode=mm)
+
+    if points.ndim != 3:
+        raise ValueError(f"points must be [N,P,C], got shape={points.shape}")
+    if labels.ndim != 1:
+        raise ValueError(f"labels must be [N], got shape={labels.shape}")
+    if points.shape[0] != labels.shape[0]:
+        raise ValueError(f"N mismatch: points N={points.shape[0]} labels N={labels.shape[0]}")
+
+    # enforce dtypes (mmap returns array-like; astype will materialize, so only cast when necessary)
+    if points.dtype != np.float32:
+        points = points.astype(np.float32)
+    if labels.dtype != np.int64:
+        labels = labels.astype(np.int64)
+
+    return points, labels
+
 
 class CustomDataset(Dataset):
-    def __init__(self, data, labels):
+    def __init__(self, data: np.ndarray, labels: np.ndarray):
         self.data = data
         self.labels = labels
 
     def __len__(self):
-        return len(self.data)
+        return int(self.data.shape[0])
 
     def __getitem__(self, idx):
-        return self.data[idx], self.labels[idx]
-def get_stacked_datach(_folder_path, _feature_name):
-    _file_num = 1000
-    _x = []
-    for _i in range(_file_num):
-        if os.path.exists('%s/%s/x_%s_%i.npy' % (_folder_path, _feature_name, _feature_name, _i)):
-           _x.append(np.load('%s/%s/x_%s_%i.npy' % (_folder_path, _feature_name, _feature_name,_i)))
-    _x = np.concatenate(_x)
-    if _feature_name == 'pmt_fht2':
-        _x[_x >=900] = 0
-        _x[_x < 0 ] = 0
-    print(_feature_name + ' has been loaded ')
-    return _x
-
-def get_stacked_datachy(_folder_path, _feature_name):
-    _file_num = 1000
-    _x = []
-    for _i in range(_file_num):
-        if os.path.exists('%s/%s_%i.npy' % (_folder_path, _feature_name, _i)):
-            _x.append(np.load('%s/%s_%i.npy' % (_folder_path, _feature_name, _i)))
-    _x = np.concatenate(_x)
-    print(_feature_name + ' has been loaded')
-    return _x
-
-def get_stacked_datawei(_folder_path, _feature_name):
-    _file_num = 1000
-    _x = []
-    for _i in range(_file_num):
-        if os.path.exists('%s/x_%s_%i.npy' % (_folder_path,  _feature_name, _i)):
-           _x.append(np.load('%s/x_%s_%i.npy' % (_folder_path, _feature_name,_i)))
-    _x = np.concatenate(_x)
-    if _feature_name == 'pmt_fht':
-        _x[_x == 1250] = 0
-    print(_feature_name + ' has been loaded ')
-    return _x
-
-def get_stacked_datanorm(_folder_path):
-    _file_num = 1000
-    _x = []
-    for _i in range(_file_num):
-        if os.path.exists('%s/x_pmt_all_%i.npy' % (_folder_path, _i)):
-           temp=np.load('%s/x_pmt_all_%i.npy' % (_folder_path, _i))[:,:,[0,1,3,4,6,2]]
-           # order: fht2, slope, npe, nperatioi5, npemax, peaktime2, timemax
-           # Filter the first column (fht2) data
-           temp_fht2 = temp[:,:,0] 
-           temp_fht2[temp_fht2 >= 900] = 0
-           temp_fht2[temp_fht2 < 0] = 0
-           temp[:,:,0] = temp_fht2  
-           _x.append(temp)
-    _x = np.concatenate(_x)
-    print('x_all has been loaded ')
-    return _x
-
-def get_stacked_dataweiCNN(_folder_path, _feature_name):
-    _file_num = 985
-    _x = []
-    for _i in range(_file_num):
-        if os.path.exists('%s/x_%s_pmt_%i.npy' % (_folder_path,  _feature_name, _i)):
-           _x.append(np.load('%s/x_%s_pmt_%i.npy' % (_folder_path, _feature_name,_i)))
-    _x = np.concatenate(_x)
-    if _feature_name == 'fht':
-        _x[_x == 1250] = 0
-    print(_feature_name + ' has been loaded ')
-    print(_x.shape)
-    return _x
-
-
+        # return torch tensors to ensure correct dtype downstream
+        x = torch.from_numpy(np.asarray(self.data[idx], dtype=np.float32))
+        y = torch.tensor(int(self.labels[idx]), dtype=torch.long)
+        return x, y
+    
 #########################################################
 #DATA AUGMENTATION
 #########################################################
