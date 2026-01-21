@@ -14,12 +14,12 @@ from train import load_data_with_splits
 def parse_args():
     p = argparse.ArgumentParser("evaluation")
     p.add_argument('--use_cpu', action='store_true', default=False)
-    p.add_argument('--gpu', type=str, default='0')
+    p.add_argument('--gpu', type=str, default='3')
     p.add_argument('--batch_size', type=int, default=32)
     p.add_argument(
         '--log_dir',
         type=str,
-        default='/home/houyh/Pointnet2-for-Directionality-Reconstruction-muon-/experiments/test2',
+        default='/home/houyh/Pointnet2-for-Directionality-Reconstruction-muon-/experiments/test_divide',
         help='experiment dir produced by train.py (must contain train_meta.json & splits.npz)',
     )
     return p.parse_args()

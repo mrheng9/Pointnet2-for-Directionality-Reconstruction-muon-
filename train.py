@@ -24,10 +24,10 @@ COORDS_HAMA_PATH   = "/disk_pool1/houyh/coords/norm_coords_hama.npy"
 def parse_args():
     parser = argparse.ArgumentParser('training')
     parser.add_argument('--use_cpu', action='store_true', default=False, help='use cpu mode')
-    parser.add_argument('--gpu', type=str, default='0', help='specify gpu device')
+    parser.add_argument('--gpu', type=str, default='3', help='specify gpu device')
 
     parser.add_argument('--batch_size', type=int, default=32, help='batch size in training')
-    parser.add_argument('--epoch', default=1, type=int, help='number of epoch in training')
+    parser.add_argument('--epoch', default=40, type=int, help='number of epoch in training')
     parser.add_argument('--learning_rate', default=0.0005, type=float, help='learning rate in training')
     parser.add_argument('--weight_decay', default=1e-4, type=float, help='weight decay in training')
     
@@ -50,7 +50,7 @@ def parse_args():
     parser.add_argument('--val_size', type=float, default=0.2)
     parser.add_argument("--eps", type=float, default=1e-6, help="numerical epsilon for divide/log")
 
-    parser.add_argument('--log_dir', type=str, default='/home/houyh/Pointnet2-for-Directionality-Reconstruction-muon-/experiments/test2', help='experiment root')
+    parser.add_argument('--log_dir', type=str, default='/home/houyh/Pointnet2-for-Directionality-Reconstruction-muon-/experiments/test_feat_normal', help='experiment root')
     return parser.parse_args()
 
 def setup_logging():
@@ -87,6 +87,9 @@ def apply_feature_scalers(points, scalers, feat_start=3):
         points[:, :, i] = (points[:, :, i] - mean) / (scale + 1e-12)
     return points
 
+def _signed_log1p(x: np.ndarray) -> np.ndarray:
+    return np.sign(x) * np.log1p(np.abs(x))
+
 def _transform_pid_features(points: np.ndarray, mode: str, eps: float = 1e-6) -> np.ndarray:
     """
     points: [N,P,3] with assumed order: [nPE, slope, FHT]
@@ -111,15 +114,20 @@ def _transform_pid_features(points: np.ndarray, mode: str, eps: float = 1e-6) ->
         out = np.stack([nPE, fht, slope / (nPE + eps)], axis=-1)
 
     elif mode == "log":
-        out = np.stack([nPE, fht, np.log(slope + eps)], axis=-1)
+        # robust for slope<=0, avoids NaNs
+        out = np.stack([nPE, fht, _signed_log1p(slope)], axis=-1)
 
     elif mode == "dlog":
-        out = np.stack([np.log(nPE + eps), fht, np.log(slope + eps)], axis=-1)
+        # keep nPE in log-space; clamp to avoid log of non-positive
+        out = np.stack([np.log(np.maximum(nPE, eps)), fht, _signed_log1p(slope)], axis=-1)
 
     else:
         raise ValueError(f"Unknown mode: {mode}")
 
-    return out.astype(np.float32, copy=False)
+    out = out.astype(np.float32, copy=False)
+    if not np.isfinite(out).all():
+        raise ValueError(f"Non-finite values produced by feature_mode={mode}. Check raw points ranges.")
+    return out
 
 def _stratified_subsample(points: np.ndarray, labels: np.ndarray, frac: float, seed: int):
     if frac >= 1.0:
