@@ -24,14 +24,14 @@ COORDS_HAMA_PATH   = "/disk_pool1/houyh/coords/norm_coords_hama.npy"
 def parse_args():
     parser = argparse.ArgumentParser('training')
     parser.add_argument('--use_cpu', action='store_true', default=False, help='use cpu mode')
-    parser.add_argument('--gpu', type=str, default='3', help='specify gpu device')
+    parser.add_argument('--gpu', type=str, default='2', help='specify gpu device')
 
     parser.add_argument('--batch_size', type=int, default=32, help='batch size in training')
     parser.add_argument('--epoch', default=40, type=int, help='number of epoch in training')
     parser.add_argument('--learning_rate', default=0.0005, type=float, help='learning rate in training')
     parser.add_argument('--weight_decay', default=1e-4, type=float, help='weight decay in training')
     
-    parser.add_argument("--pid_dataset_dir",type=str,default="/disk_pool1/houyh/data/J23_J25_7_2/pid_dataset")
+    parser.add_argument("--pid_dataset_dir",type=str,default="/disk_pool1/houyh/data/J23_J25_7_2/pid_dataset_new")
     parser.add_argument("--coordinates", action="store_true", help="use xyz coords as first 3 channels and use remaining as features")
     parser.add_argument(
         "--feature_mode",
@@ -45,12 +45,12 @@ def parse_args():
     parser.add_argument("--hamamatsu",action="store_true",help="use Hamamatsu-only PMT points: pid_points_hama.npy")
     
     parser.add_argument('--seed', type=int, default=42)
-    parser.add_argument("--use_frac",type=float,default=0.1)
+    parser.add_argument("--use_frac",type=float,default=0.8)
     parser.add_argument('--test_size', type=float, default=0.2)
     parser.add_argument('--val_size', type=float, default=0.2)
     parser.add_argument("--eps", type=float, default=1e-6, help="numerical epsilon for divide/log")
 
-    parser.add_argument('--log_dir', type=str, default='/home/houyh/Pointnet2-for-Directionality-Reconstruction-muon-/experiments/test_feat_normal', help='experiment root')
+    parser.add_argument('--log_dir', type=str, default='/disk_pool/houyh/Pointnet2-for-Directionality-Reconstruction-muon-/experiments/test_0.8_hama', help='experiment root')
     return parser.parse_args()
 
 def setup_logging():

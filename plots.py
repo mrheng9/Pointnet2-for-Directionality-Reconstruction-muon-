@@ -20,8 +20,8 @@ from sklearn.metrics import (
 
 def parse_args():
     p = argparse.ArgumentParser("plots (PID 3-class)")
-    p.add_argument("--log_dir", type=str, default="/home/houyh/Pointnet2-for-Directionality-Reconstruction-muon-/experiments/test_divide/plots")
-    p.add_argument("--pred_file", type=str, default="/home/houyh/Pointnet2-for-Directionality-Reconstruction-muon-/experiments/test_divide/predictions_test.npz")
+    p.add_argument("--log_dir", type=str, default="/disk_pool/houyh/Pointnet2-for-Directionality-Reconstruction-muon-/experiments/test_1.0_all/plots")
+    p.add_argument("--pred_file", type=str, default="/disk_pool/houyh/Pointnet2-for-Directionality-Reconstruction-muon-/experiments/test_1.0_all/predictions_test.npz")
     return p.parse_args()
 
 def ensure_dir(p: str) -> str:

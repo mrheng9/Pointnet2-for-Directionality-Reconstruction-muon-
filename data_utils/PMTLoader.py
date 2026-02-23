@@ -14,6 +14,104 @@ warnings.filterwarnings('ignore')
 
 PID_CLASS_NAMES = ["nc", "Vmu", "Ve"]
 
+def get_stacked_data(_folder_path: str, _feature_name: str, p_hint: Optional[int] = None) -> np.ndarray:
+    _file_num = 400
+    _x = []
+    for _i in range(_file_num):
+        fp = "%s/x_%s_pmt_%i.npy" % (_folder_path, _feature_name, _i)
+        if os.path.exists(fp):
+            _x.append(np.load(fp))
+
+    if len(_x) == 0:
+        raise FileNotFoundError(
+            f"No files found for feature={_feature_name} under {_folder_path}. "
+            f"Expected pattern: x_{_feature_name}_pmt_*.npy"
+        )
+
+    _x = np.concatenate(_x, axis=0)
+
+    if _x.ndim == 3 and _x.shape[-1] == 1:
+        _x = np.squeeze(_x, axis=-1)
+
+    # if flattened, reshape using provided P; if not provided, infer from common P
+    if _x.ndim == 1:
+        if p_hint is None:
+            for cand in (17612, 4997):
+                if _x.size % cand == 0:
+                    p_hint = cand
+                    break
+        if p_hint is None:
+            raise ValueError(
+                f"Stacked feature {_feature_name} is 1D with size={_x.size} and cannot infer P. "
+                f"Provide p_hint explicitly."
+            )
+        if _x.size % int(p_hint) != 0:
+            raise ValueError(
+                f"Cannot reshape 1D feature {_feature_name} of size={_x.size} into [N,{p_hint}] (not divisible)."
+            )
+        _x = _x.reshape((-1, int(p_hint)))
+
+    if _x.ndim != 2:
+        raise ValueError(f"Stacked feature {_feature_name} must be [N,P], got {_x.shape}")
+
+    if _feature_name == 'fht':
+        _x[_x == 1250] = 0
+
+    _x = _x.astype(np.float32, copy=False)
+    print(_feature_name + ' has been loaded ')
+    print(_x.shape)
+    return _x
+
+def load_eval_source_points(source: str) -> Tuple[np.ndarray, Dict]:
+    """
+    External eval data loader for: chimney / FC / data_muon_new.
+
+    Reads:
+      x_FHT.npy, x_nPE.npy, x_slope.npy  (each [N,P] or [N,P,1])
+
+    Returns:
+      points [N,P,3] float32 in NORMAL feature-mode order: [nPE, FHT, slope]
+      meta dict
+    """
+    src = str(source).strip()
+    key = src.lower()
+
+    src_dirs = {
+        "chimney": "/disk_pool1/tanxh/PID_test/Chimney_muon/",
+        "fc": "/disk_pool1/tanxh/PID_test/FC_candidates/",
+        # NEW:
+        "data_muon_new": "/disk_pool1/houyh/data/test/data_muon/PMT_features",
+    }
+
+    if key in ("data_muon", "mc_muon", "mc_muon_new"):
+        raise NotImplementedError(f"source={src} not implemented in load_eval_source_points (use stacked loader path).")
+    if key not in src_dirs:
+        raise ValueError(f"Unknown source={src}. Choose from: chimney, FC, data_muon_new, data_muon, mc_muon, mc_muon_new")
+
+    base = src_dirs[key]
+
+    def _load_2d(name: str) -> np.ndarray:
+        fp = os.path.join(base, name)
+        if not os.path.exists(fp):
+            raise FileNotFoundError(fp)
+        arr = np.load(fp)
+        if arr.ndim == 3 and arr.shape[-1] == 1:
+            arr = np.squeeze(arr, axis=-1)
+        if arr.ndim != 2:
+            raise ValueError(f"{name} must be [N,P] (or [N,P,1]), got {arr.shape}")
+        return arr.astype(np.float32, copy=False)
+
+    nPE = _load_2d("x_nPE.npy")
+    FHT = _load_2d("x_FHT.npy")
+    slope = _load_2d("x_slope.npy")
+
+    if not (nPE.shape == FHT.shape == slope.shape):
+        raise ValueError(f"Shape mismatch: nPE={nPE.shape}, FHT={FHT.shape}, slope={slope.shape}")
+
+    points = np.stack([nPE, FHT, slope], axis=-1).astype(np.float32, copy=False)  # [N,P,3]
+    meta = {"source": src, "dir": base, "N": int(points.shape[0]), "P": int(points.shape[1]), "C": 3}
+    return points, meta
+
 def load_pid_dataset(
     pid_dir: str,
     points_name: str = "pid_points.npy",
