@@ -1,6 +1,9 @@
+.gitignore
+
 __pycache__/
 data_utils/__pycache__/
 models/__pycache__/
+experiments/
 *.py[cod]
 *$py.class
 
