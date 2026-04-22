@@ -44,7 +44,9 @@ Implement or point the loader to your dataset through `data_utils/PMTLoader.py`.
 Expected conventions:
 - Inputs: stacked point features shaped `[N, P, C]`
   - N = samples, P = points per sample, C = input channels (e.g., coordinates + features)
-- Targets: regression vectors shaped `[N, D]` (commonly 3D; labels are normalized to unit vectors in `train.py`)
+- Targets: regression vectors shaped `[N, D]` (commonly 3D)
+  - **Direction task**: 3D unit vectors (optional normalization in `train.py`)
+  - **Vertex task**: 3D coordinates (do **not** unit-normalize labels)
 
 Feature origin (PMT waveforms):
 - All feature channels C are extracted from PMT charge/time waveforms measured or reconstructed from the detector.
@@ -147,13 +149,18 @@ Notes:
 Generate figures from `predictions_test.npz`:
 
 ```bash
-python plots.py 
+# vertex reconstruction plot (distance distribution + 68% quantile)
+python plots.py --task vertex --pred_file experiments/test/predictions_test.npz --log_dir experiments/test/plots
 ```
 
-Outputs (saved under `--log_dir` passed to plots.py):
-- `test_performance.png` — scatter of predicted vs true θ with y=x reference
-- `error_distribution.png` — histogram of (pred − true) θ errors (deg)
-- `angle_distribution.png` — opening angle α PDF (deg) + 68% quantile marker
+Outputs:
+- If `--task direction`:
+  - `test_performance.png` — scatter of predicted vs true θ with y=x reference
+  - `error_distribution.png` — histogram of (pred − true) θ errors (deg)
+  - `angle_distribution.png` — opening angle α PDF (deg) + 68% quantile marker
+- If `--task vertex`:
+  - `vertex_distance_q68.png` — ||pred−true|| distance PDF + 68% quantile marker
+
 
 ---
 

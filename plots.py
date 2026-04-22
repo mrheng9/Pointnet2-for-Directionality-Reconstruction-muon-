@@ -10,8 +10,15 @@ from scipy.stats import norm
 
 def parse_args():
     p = argparse.ArgumentParser("plots")
-    p.add_argument("--log_dir", type=str, default='/home/houyh/experiments/test/plots')
-    p.add_argument("--pred_file", type=str, default="/home/houyh/experiments/test/predictions_test.npz")
+    p.add_argument("--log_dir", type=str, default='experiments_vertex/test/plots')
+    p.add_argument("--pred_file", type=str, default="experiments_vertex/test/predictions_test.npz")
+    p.add_argument(
+        "--task",
+        type=str,
+        choices=["direction", "vertex"],
+        default="direction",
+        help="Which plots to generate.",
+    )
     return p.parse_args()
 
 def draw_performance(x, y, out_path):
@@ -66,26 +73,73 @@ def draw_angle_distribution(true_vecs, pred_vecs, out_path):
     plt.savefig(out_path, dpi=500)
     plt.close()
 
+###############################################################
+#2. Vertex Reconstruction Performance Plots
+###############################################################
+
+def draw_vertex_distance_q68(true_xyz, pred_xyz, out_path, bins=80):
+    """
+    Vertex reconstruction metric:
+    per-sample Euclidean distance d = ||pred - true||,
+    plot its distribution and mark 68% quantile.
+    """
+    true_xyz = np.asarray(true_xyz)
+    pred_xyz = np.asarray(pred_xyz)
+    if true_xyz.ndim != 2 or pred_xyz.ndim != 2 or true_xyz.shape[1] != 3 or pred_xyz.shape[1] != 3:
+        raise ValueError(f"Expected true/pred shape (N,3). Got {true_xyz.shape} and {pred_xyz.shape}")
+
+    d = np.linalg.norm(pred_xyz - true_xyz, axis=1)
+    d = d[np.isfinite(d)]
+
+    if d.size == 0:
+        raise ValueError("No finite distances to plot.")
+
+    q68 = np.quantile(d, 0.68)
+    median = np.quantile(d, 0.50)
+    mean = float(np.mean(d))
+
+    plt.figure(figsize=(10, 7))
+    plt.hist(d, bins=bins, density=True, alpha=0.75, color="steelblue", label="|pred-true| distances")
+    plt.axvline(q68, color="black", linewidth=2, linestyle="--", label=f"68% quantile: {q68:.4g}")
+    plt.axvline(median, color="green", linewidth=2, linestyle="--", label=f"median: {median:.4g}")
+    plt.axvline(mean, color="red", linewidth=2, linestyle="--", label=f"mean: {mean:.4g}")
+    plt.grid(True, linestyle="--", linewidth=0.5, alpha=0.6)
+    plt.xlabel("Euclidean distance ||pred - true||")
+    plt.ylabel("P.D.F")
+    plt.title("Vertex Reconstruction Error Distribution")
+    plt.legend(frameon=False)
+    plt.tight_layout()
+    plt.savefig(out_path, dpi=400)
+    plt.close()
+
 def main(args):
-    pred_path = os.path.join(args.pred_file)
-    data = np.load(pred_path)
-    y_pred = data["y_pred"]
-    y_true = data["y_true"]
+    data = np.load(args.pred_file)
+    y_pred = np.asarray(data["y_pred"])
+    y_true = np.asarray(data["y_true"])
 
-    # theta performance (same as your train.py)
-    theta_pred = np.arctan(np.sqrt(y_pred[:, 0]**2 + y_pred[:, 1]**2) / y_pred[:, 2])
-    theta_true = np.arctan(np.sqrt(y_true[:, 0]**2 + y_true[:, 1]**2) / y_true[:, 2])
-    theta_pred[theta_pred < 0] += np.pi
-    theta_true[theta_true < 0] += np.pi
-    
-    if not os.path.exists(args.log_dir):
-        os.makedirs(args.log_dir)
-#1. Direction Reconstruction Performance Plots
-    draw_performance(theta_true, theta_pred, os.path.join(args.log_dir, "test_performance.png"))
-    draw_error_distribution(theta_true, theta_pred, os.path.join(args.log_dir, "error_distribution.png"))
-    draw_angle_distribution(y_true, y_pred, os.path.join(args.log_dir, "angle_distribution.png"))
+    os.makedirs(args.log_dir, exist_ok=True)
 
-    print("Plots saved to:", args.log_dir)
+    if args.task == "direction":
+        # theta performance (more stable with arctan2 than arctan(x/z))
+        theta_pred = np.arctan2(np.sqrt(y_pred[:, 0]**2 + y_pred[:, 1]**2), y_pred[:, 2])
+        theta_true = np.arctan2(np.sqrt(y_true[:, 0]**2 + y_true[:, 1]**2), y_true[:, 2])
+        theta_pred[theta_pred < 0] += np.pi
+        theta_true[theta_true < 0] += np.pi
+
+        draw_performance(theta_true, theta_pred, os.path.join(args.log_dir, "test_performance.png"))
+        draw_error_distribution(theta_true, theta_pred, os.path.join(args.log_dir, "error_distribution.png"))
+        draw_angle_distribution(y_true, y_pred, os.path.join(args.log_dir, "angle_distribution.png"))
+
+    elif args.task == "vertex":
+        draw_vertex_distance_q68(
+            y_true,
+            y_pred,
+            os.path.join(args.log_dir, "vertex_distance_q68.png"),
+        )
+
+    else:
+        raise ValueError(f"Unknown task: {args.task}")
+    print(f"Plots saved to: {args.log_dir}")
 
 if __name__ == "__main__":
     main(parse_args())

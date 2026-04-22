@@ -23,7 +23,7 @@ import matplotlib.pyplot as plt
 def parse_args():
     parser = argparse.ArgumentParser('training')
     parser.add_argument('--use_cpu', action='store_true', default=False, help='use cpu mode')
-    parser.add_argument('--gpu', type=str, default='2', help='specify gpu device')
+    parser.add_argument('--gpu', type=str, default='0', help='specify gpu device')
 
     parser.add_argument('--batch_size', type=int, default=32, help='batch size in training')
     parser.add_argument('--epoch', default=1, type=int, help='number of epoch in training')
@@ -158,9 +158,12 @@ def load_data_with_splits(args, save_splits_to=None, load_splits_from=None):
     if src in ('cnn', 'elec'):
         y_all = y_all[:9850]
 
-    coordx_in = np.sin(y_all[:, 0]) * np.cos(y_all[:, 1])
-    coordy_in = np.sin(y_all[:, 0]) * np.sin(y_all[:, 1])
-    coordz_in = np.cos(y_all[:, 0])
+    coordx_in = y_all[:,6]
+    coordy_in = y_all[:,7]
+    coordz_in = y_all[:,8]
+    # coordx_in = np.sin(y_all[:, 0]) * np.cos(y_all[:, 1])
+    # coordy_in = np.sin(y_all[:, 0]) * np.sin(y_all[:, 1])
+    # coordz_in = np.cos(y_all[:, 0])
     labels = np.stack((coordx_in, coordy_in, coordz_in), axis=-1).astype(np.float32)
     points = x_all.astype(np.float32)
 
@@ -195,10 +198,10 @@ def load_data_with_splits(args, save_splits_to=None, load_splits_from=None):
     apply_feature_scalers(points_test, scalers, feat_start=feat_start)
 
     # ensure unit vectors (optional safety)
-    eps = 1e-12
-    labels_train = labels_train / (np.linalg.norm(labels_train, axis=1, keepdims=True) + eps)
-    labels_val = labels_val / (np.linalg.norm(labels_val, axis=1, keepdims=True) + eps)
-    labels_test = labels_test / (np.linalg.norm(labels_test, axis=1, keepdims=True) + eps)
+    # eps = 1e-12
+    # labels_train = labels_train / (np.linalg.norm(labels_train, axis=1, keepdims=True) + eps)
+    # labels_val = labels_val / (np.linalg.norm(labels_val, axis=1, keepdims=True) + eps)
+    # labels_test = labels_test / (np.linalg.norm(labels_test, axis=1, keepdims=True) + eps)
 
     split_dict = {
         "train_size": int(len(train_idx)),
