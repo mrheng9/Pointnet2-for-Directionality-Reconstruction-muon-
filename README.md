@@ -1,4 +1,4 @@
-# PointNet++ for Directionality Reconstruction (PID 3-class) — Tutorial
+# PointNet++ for Particle Identification (PID 3-class) — Tutorial
 
 ## Overview
 JUNO observes atmospheric neutrino interactions. This repo implements a **3-class PID** classifier:

@@ -1,7 +1,10 @@
+.gitignore
+
 __pycache__/
 data_utils/__pycache__/
 models/__pycache__/
 experiments/
+experiments_vertex/
 test.py
 
 *.png
