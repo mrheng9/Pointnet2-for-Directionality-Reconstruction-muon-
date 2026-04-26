@@ -10,8 +10,8 @@ from scipy.stats import norm
 
 def parse_args():
     p = argparse.ArgumentParser("plots")
-    p.add_argument("--log_dir", type=str, default='experiments_vertex/test/plots')
-    p.add_argument("--pred_file", type=str, default="experiments_vertex/test/predictions_test.npz")
+    p.add_argument("--log_dir", type=str, default='experiments_vertex/test2/plots')
+    p.add_argument("--pred_file", type=str, default="experiments_vertex/test2/predictions_test.npz")
     p.add_argument(
         "--task",
         type=str,

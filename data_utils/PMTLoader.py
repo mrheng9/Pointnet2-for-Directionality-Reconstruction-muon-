@@ -129,6 +129,28 @@ def get_stacked_dataweiCNN(_folder_path, _feature_name):
     print(_x.shape)
     return _x
 
+def get_stacked_dataeplus(_folder_path, _feature_name):
+    _file_num = 2000
+    _x = []
+    for _i in range(_file_num):
+        if os.path.exists('%s/%s_pmt_%i.npy' % (_folder_path,  _feature_name, _i)):
+           _x.append(np.load('%s/%s_pmt_%i.npy' % (_folder_path, _feature_name,_i)))
+    _x = np.concatenate(_x)
+    if _feature_name == 'fht':
+        _x[_x == 1250] = 0
+    print(_feature_name + ' has been loaded ')
+    print(_x.shape)
+    return _x
+
+def get_stacked_datayeplus(_folder_path, _feature_name):
+    _file_num = 2000
+    _x = []
+    for _i in range(_file_num):
+        if os.path.exists('%s/%s_%i.npy' % (_folder_path, _feature_name, _i)):
+            _x.append(np.load('%s/%s_%i.npy' % (_folder_path, _feature_name, _i)))
+    _x = np.concatenate(_x)
+    print(_feature_name + ' has been loaded')
+    return _x
 
 #########################################################
 #DATA AUGMENTATION

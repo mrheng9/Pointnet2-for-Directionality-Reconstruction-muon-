@@ -1,4 +1,4 @@
-# PointNet++ for directionality reconstruction — Tutorial
+# PointNet++ for vertex reconstruction — Tutorial
 This tutorial based on the server @10.102.33.217  （GPU04）
 ## Overview
 The Jiangmen Underground Neutrino Observatory **(JUNO)** is a large liquid-scintillator detector designed to determine the neutrino mass ordering and precisely measure oscillation parameters.   

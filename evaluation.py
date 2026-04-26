@@ -15,7 +15,7 @@ from train import load_data_with_splits
 def parse_args():
     p = argparse.ArgumentParser("evaluation")
     p.add_argument('--use_cpu', action='store_true', default=False)
-    p.add_argument('--gpu', type=str, default='2')
+    p.add_argument('--gpu', type=str, default='1')
     p.add_argument('--batch_size', type=int, default=64)
     p.add_argument('--data_source', type=str, default=None, help='det|elec|cnn|rawnet (default: read from train_meta.json)')
     p.add_argument('--log_dir', type=str, default='/home/houyh/experiments/test', help='experiment dir produced by train.py')

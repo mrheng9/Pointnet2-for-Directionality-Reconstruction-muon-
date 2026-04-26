@@ -8,7 +8,7 @@ from models.pointnet_regression_utils import PointNetSetAbstraction,PointNetSetA
 class get_model(nn.Module):
     def __init__(self,num_class,normal_channel=True):
         super(get_model, self).__init__()
-        in_channel = 9 if normal_channel else 3
+        in_channel = 5 if normal_channel else 3
         self.normal_channel = normal_channel
         #ssg
         # self.sa1 = PointNetSetAbstraction(npoint=512, radius=0.2, nsample=32, in_channel=in_channel, mlp=[64, 64, 128], group_all=False)

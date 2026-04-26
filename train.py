@@ -9,7 +9,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, Dataset
 from torchinfo import summary
-from data_utils.PMTLoader import PMTDataLoader,CustomDataset,get_stacked_datanorm,get_stacked_datawei,get_stacked_datachy,get_stacked_dataweiCNN
+from data_utils.PMTLoader import PMTDataLoader,CustomDataset,get_stacked_datanorm,get_stacked_datawei,get_stacked_datachy,get_stacked_dataweiCNN,get_stacked_dataeplus,get_stacked_datayeplus
 from data_utils.PMTLoader import jitter_point_cloud, random_point_dropout
 # from models.pointnet_regression import get_model,get_loss
 from models.pointnet_regression_ssg import get_model,get_loss
@@ -23,19 +23,19 @@ import matplotlib.pyplot as plt
 def parse_args():
     parser = argparse.ArgumentParser('training')
     parser.add_argument('--use_cpu', action='store_true', default=False, help='use cpu mode')
-    parser.add_argument('--gpu', type=str, default='0', help='specify gpu device')
+    parser.add_argument('--gpu', type=str, default='1', help='specify gpu device')
 
     parser.add_argument('--batch_size', type=int, default=32, help='batch size in training')
-    parser.add_argument('--epoch', default=1, type=int, help='number of epoch in training')
-    parser.add_argument('--learning_rate', default=0.0005, type=float, help='learning rate in training')
+    parser.add_argument('--epoch', default=40, type=int, help='number of epoch in training')
+    parser.add_argument('--learning_rate', default=0.005, type=float, help='learning rate in training')
     parser.add_argument('--weight_decay', default=1e-4, type=float, help='weight decay in training')
-    parser.add_argument('--data_source',type=str,default='cnn',help='choose from: det|elec|cnn|rawnet')
+    parser.add_argument('--data_source',type=str,default='cnn',help='choose from: det|elec|cnn|rawnet|e+')
 
     parser.add_argument('--seed', type=int, default=42)
     parser.add_argument('--test_size', type=float, default=0.2)
     parser.add_argument('--val_size', type=float, default=0.2)
 
-    parser.add_argument('--log_dir', type=str, default='/home/houyh/Pointnet2-for-Directionality-Reconstruction-muon-/experiments/test', help='experiment root')
+    parser.add_argument('--log_dir', type=str, default='/home/houyh/Pointnet2-for-Directionality-Reconstruction-muon-/experiments_vertex/test2', help='experiment root')
     return parser.parse_args()
 
 def setup_logging():
@@ -115,10 +115,12 @@ def load_data_with_splits(args, save_splits_to=None, load_splits_from=None):
     """
     coord_all = np.load('/disk_pool1/houyh/coords/norm_coords')
     folder_path_y = '/disk_pool1/houyh/data/y'
+    folder_path_y_eplus = '/disk_pool1/weijsh/e+/y'
     folder_path1 = '/disk_pool1/chenzhx/rebuilt_data/rawnet/pmt_together4'
     folder_path2 = '/disk_pool1/houyh/data/det_pmt'
     folder_path3 = '/disk_pool1/houyh/data/reco_pmt'
     folder_path4 = '/disk_pool1/houyh/data/elec_pmt'
+    folder_path5 = '/disk_pool1/weijsh/e+/det_feat'
 
     src = args.data_source.lower()
     all_features = []
@@ -144,6 +146,11 @@ def load_data_with_splits(args, save_splits_to=None, load_splits_from=None):
     elif src == 'rawnet':
         x_all = get_stacked_datanorm(folder_path1)
 
+    elif src == 'e+':
+        feature_list = ["fht","npe"]
+        all_features = [get_stacked_dataeplus(folder_path5, f) for f in feature_list]
+        x_all = np.stack(all_features, axis=-1)
+
     else:
         raise ValueError(f'Unknown data_source: {args.data_source}')
 
@@ -154,16 +161,16 @@ def load_data_with_splits(args, save_splits_to=None, load_splits_from=None):
 
     x_all = np.concatenate([coord_all, x_all], axis=-1)
 
-    y_all = get_stacked_datachy(folder_path_y, "y")
-    if src in ('cnn', 'elec'):
-        y_all = y_all[:9850]
+    if src == 'e+':
+        y_all = get_stacked_datayeplus(folder_path_y_eplus, "y")
+    else:
+        y_all = get_stacked_datachy(folder_path_y, "y")
+        if src in ('cnn', 'elec'):
+            y_all = y_all[:9850]
 
     coordx_in = y_all[:,6]
     coordy_in = y_all[:,7]
     coordz_in = y_all[:,8]
-    # coordx_in = np.sin(y_all[:, 0]) * np.cos(y_all[:, 1])
-    # coordy_in = np.sin(y_all[:, 0]) * np.sin(y_all[:, 1])
-    # coordz_in = np.cos(y_all[:, 0])
     labels = np.stack((coordx_in, coordy_in, coordz_in), axis=-1).astype(np.float32)
     points = x_all.astype(np.float32)
 
